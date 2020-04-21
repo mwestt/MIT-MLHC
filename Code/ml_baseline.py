@@ -8,10 +8,11 @@ from endpoint_functions import calculate_MPC_p_value
 from clinical_trial_generation import generate_one_trial_seizure_diaries
 from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 from sklearn import svm
-
 import numpy as np
 import pandas as pd
+
 
 def generate_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2, 
                         n_maint_months=3, baseline_time_scale="weekly", 
@@ -100,7 +101,8 @@ def generate_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2,
             calculate_MPC_p_value(baseline_time_scale, maintenance_time_scale,
                                   p_base, p_maint, t_base, t_maint)
         
-        data_list.append([p_base, p_maint, t_base, t_maint, MPC_p_value, 
+        data_list.append([np.mean(p_base), np.mean(p_maint), np.mean(t_base), 
+                          np.mean(t_maint), MPC_p_value, 
                           int(drug_efficacy_presence)])
 
     trial_set_df = pd.DataFrame(data_list, columns=['placebo_base', 'placebo_maint', 
@@ -138,17 +140,18 @@ def generate_baseline_predictions(df):
         Type 1 error of method. The probability of incorrectly identifying a 
         placebo/placebo trial as a placebo/drug trial.
     """
-    #X = df[['placebo_base', 'placebo_maint', 'drug_base', 'drug_maint', 'MPC']]
-    X = df[['MPC', 'Placebo/Drug']]
+    X = df[['placebo_base', 'placebo_maint', 'drug_base', 'drug_maint']]
     y = df['Placebo/Drug']
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    
     # classifier = svm.SVC()
-
     classifier = XGBClassifier()
+    
     classifier.fit(X_train, y_train)
+    y_pred = classifier.predict(X_test)
 
-
+    print(accuracy_score(y_test, y_pred))
 
 
     #return power, type_1_error
