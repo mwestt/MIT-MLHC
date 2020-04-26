@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 
-def generate_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2, 
+def generate_variable_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2,
                         n_maint_months=3, baseline_time_scale="weekly", 
                         maintenance_time_scale="weekly", min_seizure=4,
                         placebo_percent_effect_mean=0.1,
@@ -179,7 +179,7 @@ def generate_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2,
     return trial_set_df
 
 
-def generate_baseline_predictions(df):
+def alex_generate_baseline_predictions(df):
     """Function to train and generate predictions from a given dataset for 
     baseline model. Takes either a pandas DataFrame or string to HDF5 file where
     one is stored.
@@ -257,7 +257,7 @@ if __name__ == "__main__":
     drug_percent_effect_std_dev    = 0.05
 
     # Generate dataset - can just comment this out and use saved data
-    df_dataset = generate_ml_dataset(N=2000, n_placebo=num_placebo_arm_patients,
+    df_dataset = generate_variable_ml_dataset(N=2000, n_placebo=num_placebo_arm_patients,
                         n_drug=num_drug_arm_patients,
                         n_base_months=num_baseline_months, 
                         n_maint_months=num_maintenance_months,
@@ -277,6 +277,6 @@ if __name__ == "__main__":
 '''
     print(df_dataset.head())
     # Generate predictions
-    generate_baseline_predictions(df_dataset)
+    alex_generate_baseline_predictions(df_dataset)
 
     
