@@ -3,6 +3,11 @@
 # classifiers to assess performance on this dataset.
 # Authors: Matthew West <mwest@hsph.harvard.edu>
  
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib import rc
+
 from clinical_trial_generation import generate_one_trial_seizure_diaries
 from endpoint_functions import calculate_MPC_p_value
 
@@ -13,8 +18,9 @@ from sklearn import svm
 from xgboost import XGBClassifier
 from tqdm import tqdm
 
-import numpy as np
-import pandas as pd
+# Nice plot parameters
+rc('font', **{'family':'sans-serif','sans-serif':['Helvetica']})
+rc('text', usetex=True)
 
 
 def generate_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2, 
@@ -96,7 +102,7 @@ def generate_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2,
     # Loop over N trials. The first N/2 will be placebo/placebo.
     print('Generating dataset of {} clinical trials.'.format(N))
     for i in tqdm(range(N)):
-        if i == N / 2:
+        if i == N // 2:
             drug_efficacy_presence = True
 
         # Generate seizure diary for one trial
@@ -172,7 +178,8 @@ def generate_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2,
     return trial_set_df
 
 
-def generate_baseline_predictions(df):
+def generate_baseline_predictions(df, classifier_type='logistic', 
+                                  MPC_significance=0.05):
     """Function to train and generate predictions from a given dataset for 
     baseline model. Takes either a pandas DataFrame or string to HDF5 file where
     one is stored.
@@ -182,6 +189,13 @@ def generate_baseline_predictions(df):
     df : pandas DataFrame or string
         DataFrame of clinical trial data, or a string for the filename of a 
         `.h5` file from which to open DataFrame.
+    
+    classifier_type : string {'logistic', 'svm', 'xgboost'}
+        Which classifier to use to make predictions.
+        
+    MPC_significance : float
+        Significance level for MPC value below which the null hypothesis is 
+        rejected and a trial is determined to have drug effect present. 
 
     Returns
     -------
@@ -192,20 +206,41 @@ def generate_baseline_predictions(df):
     type_1_error : float
         Type 1 error of method. The probability of incorrectly identifying a 
         placebo/placebo trial as a placebo/drug trial.
+
+    mpc_power : float
+        Statistical power of MPC method. The probability of correctly 
+        identifying a placebo/drug trial.
+
+    mpc_type_1_error : float
+        Type 1 error of MPC method. The probability of incorrectly identifying a 
+        placebo/placebo trial as a placebo/drug trial.
     """
     if isinstance(df, str):
         df = pd.read_hdf(df, 'df')
 
-    # Prepare data and test/train split
-    X = df.drop(columns=['MPC', 'Placebo/Drug'])    
-    y = df['Placebo/Drug']
+    # Get MPC power and type_1_error
+    df['MPC_pred'] = (df['MPC'] < MPC_significance)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    # Prepare data and test/train split
     
+    df_train, df_test = train_test_split(df, test_size=0.2)
+
+    X_train = df_train.drop(columns=['MPC', 'MPC_pred', 'Placebo/Drug'])    
+    X_test = df_test.drop(columns=['MPC', 'MPC_pred', 'Placebo/Drug'])
+    y_train = df_train['Placebo/Drug']
+    y_test = df_test['Placebo/Drug']
+
     # Select classifier
-    classifier = LogisticRegression()
-    # classifier = svm.SVC()
-    # classifier = XGBClassifier()
+    if classifier_type == 'logistic':
+        classifier = LogisticRegression()
+    elif classifier_type == 'svm':
+        classifier = svm.SVC()
+    elif classifier_type == 'xgboost':
+        classifier = XGBClassifier()
+    else: 
+        raise ValueError(
+            "classifier_type must be one of {'logistic', 'svm', 'xgboost'}."
+            )
 
     # Fit classifier and make predictions    
     classifier.fit(X_train, y_train)
@@ -215,7 +250,75 @@ def generate_baseline_predictions(df):
     tn, fp, _, _ = confusion_matrix(y_test, y_pred).ravel()
     type_1_error = fp / (fp + tn)
 
-    return power, type_1_error
+    # Store predictions from MPC    
+    mpc_pred = df_test['MPC_pred']
+
+    # MPC power and type 1 error
+    mpc_power = recall_score(y_test, mpc_pred)
+    tn_mpc, fp_mpc, _, _ = confusion_matrix(y_test, mpc_pred).ravel()
+    mpc_type_1_error = fp_mpc / (fp_mpc + tn_mpc)
+
+    return power, type_1_error, mpc_power, mpc_type_1_error
+
+
+def plot_drug_effect_power_curve(drug_effects=None, N=500,
+                                 classifier_type='xgboost'):
+    """A function to plot power and type 1 error curves for a given dataset for
+    benchmark classifiers.
+    
+    Parameters
+    ----------
+    drug_effects : array-like
+        List or array containing range of mean drug effects. 
+    
+    N : int
+        Number of clinical trials in each dataset.
+
+    classifier_type : string {'logistic', 'svm', 'xgboost'}
+        Classifier to train for each drug effect.
+    """ 
+    if drug_effects is None:
+        drug_effects = np.linspace(0, 0.4, 41)
+    
+    power_list, type_1_error_list = [], []
+    mpc_power_list, mpc_type_1_error_list = [], []
+
+    for drug_percent_effect_mean in drug_effects:
+        df_dataset = generate_ml_dataset(N=N, n_placebo=100, 
+                                         n_drug=100,
+                                         n_base_months=2, 
+                                         n_maint_months=3,
+                                         baseline_time_scale='weekly', 
+                                         maintenance_time_scale='weekly',
+                                         min_seizure=4,
+                                         placebo_percent_effect_mean=0.1, 
+                                         placebo_percent_effect_std_dev=0.05, 
+                                         drug_percent_effect_mean=drug_percent_effect_mean, 
+                                         drug_percent_effect_std_dev=0.05,
+                                         save_data=False,
+                                         raw_counts=False)
+    
+        # Generate predictions
+        power, type_1_error, mpc_power, mpc_type_1_error = \
+            generate_baseline_predictions(df_dataset, 
+                                          classifier_type=classifier_type)
+
+        power_list.append(power)
+        type_1_error_list.append(type_1_error)
+        mpc_power_list.append(mpc_power)
+        mpc_type_1_error_list.append(mpc_type_1_error)
+
+    plt.plot(drug_effects, power_list, label='ML Power')
+    plt.plot(drug_effects, type_1_error_list, color='r', label='ML Type 1 Error')
+    plt.plot(drug_effects, mpc_power_list, ls='--', label='MPC Power')
+    plt.plot(drug_effects, mpc_type_1_error_list, ls='--', label='MPC Type 1 Error')
+    plt.axhline(y=0.9, color='r', lw=0.5, ls='-.')
+    plt.axhline(y=0.05, color='r', lw=0.5, ls='-.')
+
+    plt.xlabel('Mean Drug Effect')
+    plt.ylabel('Performance')
+    plt.legend()
+    plt.show()
 
 
 if __name__ == "__main__":
@@ -234,26 +337,30 @@ if __name__ == "__main__":
 
     placebo_percent_effect_mean    = 0.1
     placebo_percent_effect_std_dev = 0.05
-    drug_percent_effect_mean       = 0.25
+    drug_percent_effect_mean       = 0.2
     drug_percent_effect_std_dev    = 0.05
 
-    # Generate dataset - can just comment this out and use saved data
-    df_dataset = generate_ml_dataset(N=1000, n_placebo=num_placebo_arm_patients, 
-                        n_drug=num_drug_arm_patients,
-                        n_base_months=num_baseline_months, 
-                        n_maint_months=num_maintenance_months,
-                        baseline_time_scale=baseline_time_scale, 
-                        maintenance_time_scale=maintenance_time_scale,
-                        min_seizure=minimum_cumulative_baseline_seizure_count,
-                        placebo_percent_effect_mean=placebo_percent_effect_mean, 
-                        placebo_percent_effect_std_dev=placebo_percent_effect_std_dev, 
-                        drug_percent_effect_mean=drug_percent_effect_mean, 
-                        drug_percent_effect_std_dev=drug_percent_effect_std_dev,
-                        save_data=True,
-                        raw_counts=False)
+    # # Generate dataset - can just comment this out and use saved data
+    # df_dataset = generate_ml_dataset(N=500, n_placebo=num_placebo_arm_patients, 
+    #                     n_drug=num_drug_arm_patients,
+    #                     n_base_months=num_baseline_months, 
+    #                     n_maint_months=num_maintenance_months,
+    #                     baseline_time_scale=baseline_time_scale, 
+    #                     maintenance_time_scale=maintenance_time_scale,
+    #                     min_seizure=minimum_cumulative_baseline_seizure_count,
+    #                     placebo_percent_effect_mean=placebo_percent_effect_mean, 
+    #                     placebo_percent_effect_std_dev=placebo_percent_effect_std_dev, 
+    #                     drug_percent_effect_mean=drug_percent_effect_mean, 
+    #                     drug_percent_effect_std_dev=drug_percent_effect_std_dev,
+    #                     save_data=False,
+    #                     raw_counts=False)
     
-    # Generate predictions
-    power, type_1_error = generate_baseline_predictions(df_dataset)
-    print('Power = ', power)
-    print('Type 1 Error = ', type_1_error)
+    # # Generate predictions
+    # power, type_1_error = generate_baseline_predictions(df_dataset, 
+    #                                                     classifier_type='xgboost')
+    # print('Power = ', power)
+    # print('Type 1 Error = ', type_1_error)
+
+    # Generate plot of power and type 1 error 
+    plot_drug_effect_power_curve(drug_effects=np.linspace(0, 0.25, 26), N=5000)
     
