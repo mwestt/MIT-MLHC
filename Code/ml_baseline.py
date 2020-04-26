@@ -9,10 +9,13 @@ from endpoint_functions import calculate_MPC_p_value
 from sklearn.metrics import accuracy_score, recall_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn import svm
-from xgboost import XGBClassifier
+#from xgboost import XGBClassifier
 from tqdm import tqdm
+import h5py
 
+import random
 import numpy as np
 import pandas as pd
 
@@ -99,6 +102,10 @@ def generate_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2,
         if i == N / 2:
             drug_efficacy_presence = True
 
+        p_offset = random.randint(0, 5)/25.0
+        m_offset = random.randint(0, 1)/10.0
+        placebo_percent_effect_mean += p_offset
+        drug_percent_effect_mean += m_offset
         # Generate seizure diary for one trial
         [p_base, p_maint, t_base, t_maint] = \
          generate_one_trial_seizure_diaries(n_placebo, n_drug, n_base_months,
@@ -203,11 +210,25 @@ def generate_baseline_predictions(df):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
     
     # Select classifier
-    classifier = LogisticRegression()
-    # classifier = svm.SVC()
+    lr_classifier = LogisticRegression(solver='lbfgs')
+    svm_classifier = svm.SVC(gamma='scale')
     # classifier = XGBClassifier()
+    rf_classifier = RandomForestClassifier(n_estimators=100)
 
     # Fit classifier and make predictions    
+    lr_power, lr_type_1_error = predict(lr_classifier, X_train, y_train, X_test, y_test)
+    svm_power, svm_type_1_error = predict(svm_classifier, X_train, y_train, X_test, y_test)
+    rf_power, rf_type_1_error = predict(rf_classifier, X_train, y_train, X_test, y_test)
+    print("Svm power: ", svm_power)
+    print("Svm type 1 error: ", svm_type_1_error)
+    print("Logistic Regression power: ", lr_power)
+    print("Logistic Regression type 1 error: ", lr_type_1_error)
+    print("Random forest power: ", rf_power)
+    print("Random forest power: ", rf_type_1_error)
+
+def predict(classifier, X_train, y_train, X_test, y_test):
+
+
     classifier.fit(X_train, y_train)
     y_pred = classifier.predict(X_test)
 
@@ -216,8 +237,6 @@ def generate_baseline_predictions(df):
     type_1_error = fp / (fp + tn)
 
     return power, type_1_error
-
-
 if __name__ == "__main__":
 
     # Individual trial hyperparameters
@@ -232,13 +251,13 @@ if __name__ == "__main__":
 
     minimum_cumulative_baseline_seizure_count = 4
 
-    placebo_percent_effect_mean    = 0.1
+    placebo_percent_effect_mean    = 0.2
     placebo_percent_effect_std_dev = 0.05
-    drug_percent_effect_mean       = 0.25
+    drug_percent_effect_mean       = 0.2
     drug_percent_effect_std_dev    = 0.05
 
     # Generate dataset - can just comment this out and use saved data
-    df_dataset = generate_ml_dataset(N=1000, n_placebo=num_placebo_arm_patients, 
+    df_dataset = generate_ml_dataset(N=2000, n_placebo=num_placebo_arm_patients,
                         n_drug=num_drug_arm_patients,
                         n_base_months=num_baseline_months, 
                         n_maint_months=num_maintenance_months,
@@ -251,9 +270,13 @@ if __name__ == "__main__":
                         drug_percent_effect_std_dev=drug_percent_effect_std_dev,
                         save_data=True,
                         raw_counts=False)
-    
+    '''
+
+    file = h5py.File('df_features_5000_100_100_504.6400000000105_0.05_255.99999999998974_0.05.h5', 'r', )
+    df_dataset = file['df']['table'][:]
+'''
+    print(df_dataset.head())
     # Generate predictions
-    power, type_1_error = generate_baseline_predictions(df_dataset)
-    print('Power = ', power)
-    print('Type 1 Error = ', type_1_error)
+    generate_baseline_predictions(df_dataset)
+
     
