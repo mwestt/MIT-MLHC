@@ -218,7 +218,7 @@ def generate_baseline_predictions(df, classifier_type='logistic',
     if isinstance(df, str):
         df = pd.read_hdf(df, 'df')
 
-    # Get MPC power and type_1_error
+    # Get MPC predictions
     df['MPC_pred'] = (df['MPC'] < MPC_significance)
 
     # Prepare data and test/train split
