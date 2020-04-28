@@ -142,13 +142,14 @@ def generate_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2,
             for phase in ['p_base', 't_base', 't_base', 't_maint']:
                 feature_dict[phase + '_mean'] = np.mean(raw_count_dict[phase])
                 feature_dict[phase + '_std'] = np.std(raw_count_dict[phase])
-                feature_dict[phase + '_median'] = np.median(raw_count_dict[phase])
                 feature_dict[phase + '_25_pc'] = np.percentile(raw_count_dict[phase], 25)
+                feature_dict[phase + '_median'] = np.median(raw_count_dict[phase])
                 feature_dict[phase + '_75_pc'] = np.percentile(raw_count_dict[phase], 75)
 
             # Metadata/label columns
             feature_dict['MPC'] = MPC_p_value
             feature_dict['Placebo/Drug'] = int(drug_efficacy_presence)                
+            feature_dict['Patients per arm'] = n_drug
 
             data_list.append(feature_dict.values())
 
@@ -415,9 +416,7 @@ def generate_baseline_predictions(df, classifier_type='xgboost',
     return power, type_1_error, mpc_power, mpc_type_1_error
 
 
-def generate_power_from_classifier(df, 
-                                         classifier=None, 
-                                         MPC_significance=0.05):
+def generate_power_from_classifier(df, classifier=None, MPC_significance=0.05):
     """Function to generate estimates of power and type 1 error from a given 
     dataset for a given classifier on model, WITHOUT training first. Also 
     generates these estimates for MPC method on the same data.
@@ -539,7 +538,7 @@ def plot_drug_effect_power_curve(drug_effects=None, N=500,
 
 
 def plot_n_patient_power_curve(patient_numbers=None, N=500,
-                               classifier_type='xgboost'):
+                               classifier_type='xgboost', save_fig=True):
     """A function to plot power and type 1 error curves for a given dataset for
     benchmark classifiers as a function of trial size.
     
@@ -553,6 +552,9 @@ def plot_n_patient_power_curve(patient_numbers=None, N=500,
 
     classifier_type : string {'logistic', 'svm', 'xgboost'}
         Classifier to train for each drug effect.
+
+    save_fig : boolean
+        Whether or not to save figure in local directory.
     """ 
     if patient_numbers is None:
         patient_numbers = np.arange(20, 500, 50)
@@ -595,6 +597,81 @@ def plot_n_patient_power_curve(patient_numbers=None, N=500,
     plt.xlabel('Patient Number Per Trial Arm')
     plt.ylabel('Performance')
     plt.legend()
+
+    if save_fig:
+        file_name = 'power_patient_curve_N={}_d_eff=0.2_p_eff=0.21_d_std=0.05_p_std=0.1.png'.format(N)
+        plt.savefig(file_name)
+        file_name_pdf = 'power_patient_curve_N={}_d_eff=0.2_p_eff=0.21_d_std=0.05_p_std=0.1_pdf.pdf'.format(N)
+        plt.savefig(file_name_pdf)
+
+    plt.show()
+
+
+def plot_n_patient_power_curve_no_train(classifier, patient_numbers=None, 
+                                        N=1500, save_fig=True):
+    """A function to plot power and type 1 error curves for a given dataset for
+    benchmark classifiers as a function of trial size, given a classifier.
+    
+    Parameters
+    ----------
+    classifier : pickled classifier object
+        Classifier trained on range of clinical trials to use for predictions.
+
+    patient_numbers : array-like
+        List or array containing range of patient numbers 
+    
+    N : int
+        Number of clinical trials in each dataset.
+
+    save_fig : boolean
+        Whether or not to save figure in local directory.
+    """ 
+    if patient_numbers is None:
+        patient_numbers = np.arange(20, 500, 50)
+    
+    power_list, type_1_error_list = [], []
+    mpc_power_list, mpc_type_1_error_list = [], []
+
+    for n_patients in tqdm(patient_numbers):
+        df_dataset = generate_ml_dataset(N=N, n_placebo=n_patients, 
+                                         n_drug=n_patients,
+                                         n_base_months=2, 
+                                         n_maint_months=3,
+                                         baseline_time_scale='weekly', 
+                                         maintenance_time_scale='weekly',
+                                         min_seizure=4,
+                                         placebo_percent_effect_mean=0.21, 
+                                         placebo_percent_effect_std_dev=0.1, 
+                                         drug_percent_effect_mean=0.2, 
+                                         drug_percent_effect_std_dev=0.05,
+                                         save_data=False,
+                                         raw_counts=False)
+    
+        # Generate predictions using classifier
+        power, type_1_error, mpc_power, mpc_type_1_error = \
+            generate_power_from_classifier(df=df_dataset, classifier=classifier)
+        power_list.append(power)
+        type_1_error_list.append(type_1_error)
+        mpc_power_list.append(mpc_power)
+        mpc_type_1_error_list.append(mpc_type_1_error)
+
+    plt.plot(patient_numbers, power_list, label='ML Power')
+    plt.plot(patient_numbers, type_1_error_list, color='r', label='ML Type 1 Error')
+    plt.plot(patient_numbers, mpc_power_list, ls='--', label='MPC Power')
+    plt.plot(patient_numbers, mpc_type_1_error_list, ls='--', label='MPC Type 1 Error')
+    plt.axhline(y=0.9, color='r', lw=0.5, ls='-.')
+    plt.axhline(y=0.05, color='r', lw=0.5, ls='-.')
+
+    plt.xlabel('Patient Number Per Trial Arm')
+    plt.ylabel('Performance')
+    plt.legend()
+
+    if save_fig:
+        file_name = 'power_patient_curve_one_model_N={}_d_eff=0.2_p_eff.png'.format(N)
+        plt.savefig(file_name)
+        file_name_pdf = 'power_patient_curve_one_model_N={}_d_eff=0.2_p_eff_pdf.pdf'.format(N)
+        plt.savefig(file_name_pdf)
+        
     plt.show()
 
 
@@ -640,11 +717,15 @@ if __name__ == "__main__":
 
     # Generate plot of power and type 1 error 
     # plot_drug_effect_power_curve(drug_effects=np.linspace(0, 0.25, 26), N=5000)
-    plot_n_patient_power_curve(patient_numbers=np.arange(10, 350, 10), N=6000)
+    # plot_n_patient_power_curve(patient_numbers=np.arange(10, 350, 10), N=6000)
     # generate_ml_dataset_large(N=1000, save_data=True, raw_counts=False)
     # print(generate_baseline_predictions('df_features_100000.h5', 
     #                                     classifier_type='xgboost', save_model=False))
     
     # # Loading model and using it to get power and type 1 error
-    # classif = pickle.load(open("xgboost_model_df_features_100000.h5.model", "rb"))
+    classif = pickle.load(open("xgboost_model_df_features_100000.h5.model", "rb"))
     # print(generate_power_from_classifier('df_features_100000.h5', classifier=classif))
+    plot_n_patient_power_curve_no_train(classifier=classif, 
+                                        patient_numbers=np.arange(10, 350, 2),
+                                        N=1500,
+                                        save_fig=True)
