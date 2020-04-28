@@ -538,7 +538,8 @@ def plot_drug_effect_power_curve(drug_effects=None, N=500,
 
 
 def plot_n_patient_power_curve(patient_numbers=None, N=500,
-                               classifier_type='xgboost', save_fig=True):
+                               classifier_type='xgboost', save_fig=True,
+                               variable_drug_placebo_strength=True):
     """A function to plot power and type 1 error curves for a given dataset for
     benchmark classifiers as a function of trial size.
     
@@ -555,12 +556,21 @@ def plot_n_patient_power_curve(patient_numbers=None, N=500,
 
     save_fig : boolean
         Whether or not to save figure in local directory.
+
+    variable_drug_placebo_strength : boolean
+        Whether or not to randomise over drug and placebo strength.
     """ 
     if patient_numbers is None:
         patient_numbers = np.arange(20, 500, 50)
     
     power_list, type_1_error_list = [], []
     mpc_power_list, mpc_type_1_error_list = [], []
+
+    if variable_drug_placebo_strength:
+        p_eff_mean = np.random.uniform(0, 0.4)
+        d_eff_mean = np.random.uniform(0, 0.4)
+    else:
+        p_eff_mean, d_eff_mean = 0.21, 0.2
 
     for n_patients in tqdm(patient_numbers):
         df_dataset = generate_ml_dataset(N=N, n_placebo=n_patients, 
@@ -570,9 +580,9 @@ def plot_n_patient_power_curve(patient_numbers=None, N=500,
                                          baseline_time_scale='weekly', 
                                          maintenance_time_scale='weekly',
                                          min_seizure=4,
-                                         placebo_percent_effect_mean=0.21, 
+                                         placebo_percent_effect_mean=p_eff_mean, 
                                          placebo_percent_effect_std_dev=0.1, 
-                                         drug_percent_effect_mean=0.2, 
+                                         drug_percent_effect_mean=d_eff_mean, 
                                          drug_percent_effect_std_dev=0.05,
                                          save_data=False,
                                          raw_counts=False)
@@ -600,8 +610,12 @@ def plot_n_patient_power_curve(patient_numbers=None, N=500,
 
     if save_fig:
         file_name = 'power_patient_curve_N={}_d_eff=0.2_p_eff=0.21_d_std=0.05_p_std=0.1.png'.format(N)
+        if variable_drug_placebo_strength:
+            file_name = 'var_drug_' + file_name
         plt.savefig(file_name)
         file_name_pdf = 'power_patient_curve_N={}_d_eff=0.2_p_eff=0.21_d_std=0.05_p_std=0.1_pdf.pdf'.format(N)
+                if variable_drug_placebo_strength:
+            file_name_df = 'var_drug_' + file_name_pdf
         plt.savefig(file_name_pdf)
 
     plt.show()
@@ -667,9 +681,9 @@ def plot_n_patient_power_curve_no_train(classifier, patient_numbers=None,
     plt.legend()
 
     if save_fig:
-        file_name = 'power_patient_curve_one_model_N={}_d_eff=0.2_p_eff.png'.format(N)
+        file_name = 'power_patient_curve_one_model_N={}_d_eff=0.2_p_eff=0.21.png'.format(N)
         plt.savefig(file_name)
-        file_name_pdf = 'power_patient_curve_one_model_N={}_d_eff=0.2_p_eff_pdf.pdf'.format(N)
+        file_name_pdf = 'power_patient_curve_one_model_N={}_d_eff=0.2_p_eff=0.21_pdf.pdf'.format(N)
         plt.savefig(file_name_pdf)
         
     plt.show()
@@ -725,7 +739,7 @@ if __name__ == "__main__":
     # # Loading model and using it to get power and type 1 error
     classif = pickle.load(open("xgboost_model_df_features_100000.h5.model", "rb"))
     # print(generate_power_from_classifier('df_features_100000.h5', classifier=classif))
-    plot_n_patient_power_curve_no_train(classifier=classif, 
-                                        patient_numbers=np.arange(10, 350, 2),
-                                        N=1500,
-                                        save_fig=True)
+    # plot_n_patient_power_curve_no_train(classifier=classif, 
+    #                                     patient_numbers=np.arange(10, 350, 2),
+    #                                     N=1500,
+    #                                     save_fig=True)
