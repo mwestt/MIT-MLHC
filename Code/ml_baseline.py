@@ -539,7 +539,7 @@ def plot_drug_effect_power_curve(drug_effects=None, N=500,
 
 def plot_n_patient_power_curve(patient_numbers=None, N=500,
                                classifier_type='xgboost', save_fig=True,
-                               variable_drug_placebo_strength=True):
+                               variable_drug_placebo_strength=False):
     """A function to plot power and type 1 error curves for a given dataset for
     benchmark classifiers as a function of trial size.
     
@@ -573,25 +573,47 @@ def plot_n_patient_power_curve(patient_numbers=None, N=500,
         p_eff_mean, d_eff_mean = 0.21, 0.2
 
     for n_patients in tqdm(patient_numbers):
+        # Generate predictions on general dataset with specific drug effect        
         df_dataset = generate_ml_dataset(N=N, n_placebo=n_patients, 
-                                         n_drug=n_patients,
-                                         n_base_months=2, 
-                                         n_maint_months=3,
-                                         baseline_time_scale='weekly', 
-                                         maintenance_time_scale='weekly',
-                                         min_seizure=4,
-                                         placebo_percent_effect_mean=p_eff_mean, 
-                                         placebo_percent_effect_std_dev=0.1, 
-                                         drug_percent_effect_mean=d_eff_mean, 
-                                         drug_percent_effect_std_dev=0.05,
-                                         save_data=False,
-                                         raw_counts=False)
-    
+                                            n_drug=n_patients,
+                                            n_base_months=2, 
+                                            n_maint_months=3,
+                                            baseline_time_scale='weekly', 
+                                            maintenance_time_scale='weekly',
+                                            min_seizure=4,
+                                            placebo_percent_effect_mean=0.21, 
+                                            placebo_percent_effect_std_dev=0.1, 
+                                            drug_percent_effect_mean=0.2, 
+                                            drug_percent_effect_std_dev=0.05,
+                                            save_data=False,
+                                            raw_counts=False)
+        
         # Generate predictions
         power, type_1_error, mpc_power, mpc_type_1_error = \
-            generate_baseline_predictions(df_dataset, 
-                                          classifier_type=classifier_type)
-
+                generate_baseline_predictions(df_dataset, 
+                                              classifier_type=classifier_type)
+        print(power, type_1_error)
+        # Overwrite ML power and type 1 error if training on variable drug effect
+        if variable_drug_placebo_strength:
+            df_dataset_variable = generate_ml_dataset(N=N, n_placebo=n_patients, 
+                                            n_drug=n_patients,
+                                            n_base_months=2, 
+                                            n_maint_months=3,
+                                            baseline_time_scale='weekly', 
+                                            maintenance_time_scale='weekly',
+                                            min_seizure=4,
+                                            placebo_percent_effect_mean=p_eff_mean, 
+                                            placebo_percent_effect_std_dev=0.1, 
+                                            drug_percent_effect_mean=d_eff_mean, 
+                                            drug_percent_effect_std_dev=0.05,
+                                            save_data=False,
+                                            raw_counts=False)
+        
+            # Generate predictions - if using variable dataset
+            power, type_1_error, _, _ = \
+                generate_baseline_predictions(df_dataset_variable, 
+                                            classifier_type=classifier_type)
+            print(power, type_1_error)
         power_list.append(power)
         type_1_error_list.append(type_1_error)
         mpc_power_list.append(mpc_power)
@@ -614,8 +636,8 @@ def plot_n_patient_power_curve(patient_numbers=None, N=500,
             file_name = 'var_drug_' + file_name
         plt.savefig(file_name)
         file_name_pdf = 'power_patient_curve_N={}_d_eff=0.2_p_eff=0.21_d_std=0.05_p_std=0.1_pdf.pdf'.format(N)
-                if variable_drug_placebo_strength:
-            file_name_df = 'var_drug_' + file_name_pdf
+        if variable_drug_placebo_strength:
+            file_name_pdf = 'var_drug_' + file_name_pdf
         plt.savefig(file_name_pdf)
 
     plt.show()
@@ -731,13 +753,15 @@ if __name__ == "__main__":
 
     # Generate plot of power and type 1 error 
     # plot_drug_effect_power_curve(drug_effects=np.linspace(0, 0.25, 26), N=5000)
-    # plot_n_patient_power_curve(patient_numbers=np.arange(10, 350, 10), N=6000)
+    plot_n_patient_power_curve(patient_numbers=np.arange(10, 350, 10), N=6000,
+                                variable_drug_placebo_strength=True,
+                                save_fig=True)
     # generate_ml_dataset_large(N=1000, save_data=True, raw_counts=False)
     # print(generate_baseline_predictions('df_features_100000.h5', 
     #                                     classifier_type='xgboost', save_model=False))
     
     # # Loading model and using it to get power and type 1 error
-    classif = pickle.load(open("xgboost_model_df_features_100000.h5.model", "rb"))
+    # classif = pickle.load(open("xgboost_model_df_features_100000.h5.model", "rb"))
     # print(generate_power_from_classifier('df_features_100000.h5', classifier=classif))
     # plot_n_patient_power_curve_no_train(classifier=classif, 
     #                                     patient_numbers=np.arange(10, 350, 2),
