@@ -12,7 +12,7 @@ from matplotlib import rc
 from clinical_trial_generation import generate_one_trial_seizure_diaries
 from endpoint_functions import calculate_MPC_p_value
 
-from sklearn.metrics import accuracy_score, recall_score, confusion_matrix
+from sklearn.metrics import accuracy_score, recall_score, confusion_matrix, plot_roc_curve
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn import svm
@@ -145,6 +145,9 @@ def generate_ml_dataset(N=100, n_placebo=100, n_drug=100, n_base_months=2,
                 feature_dict[phase + '_25_pc'] = np.percentile(raw_count_dict[phase], 25)
                 feature_dict[phase + '_median'] = np.median(raw_count_dict[phase])
                 feature_dict[phase + '_75_pc'] = np.percentile(raw_count_dict[phase], 75)
+                feature_dict[phase + '_max'] = np.max(raw_count_dict[phase])
+                feature_dict[phase + '_min'] = np.min(raw_count_dict[phase])
+
 
             # Metadata/label columns
             feature_dict['MPC'] = MPC_p_value
@@ -245,9 +248,9 @@ def generate_ml_dataset_large(N=100000,
         # Draw patient numbers and drug effect parameters randomly
         n_patients = np.random.randint(10, 500)
         placebo_percent_effect_mean = np.random.uniform(0, 0.4)
-        placebo_percent_effect_std_dev = np.random.uniform(0, 0.1)
         drug_percent_effect_mean = np.random.uniform(0, 0.4)
-        drug_percent_effect_std_dev = np.random.uniform(0, 0.1)
+        placebo_percent_effect_std_dev = 0.1
+        drug_percent_effect_std_dev = 0.05
 
         # Generate seizure diary for one trial
         [p_base, p_maint, t_base, t_maint] = \
@@ -289,6 +292,8 @@ def generate_ml_dataset_large(N=100000,
                 feature_dict[phase + '_25_pc'] = np.percentile(raw_count_dict[phase], 25)
                 feature_dict[phase + '_median'] = np.median(raw_count_dict[phase])
                 feature_dict[phase + '_75_pc'] = np.percentile(raw_count_dict[phase], 75)
+                feature_dict[phase + '_max'] = np.max(raw_count_dict[phase])
+                feature_dict[phase + '_min'] = np.min(raw_count_dict[phase])
 
             # Metadata/label columns
             feature_dict['MPC'] = MPC_p_value
@@ -369,8 +374,7 @@ def generate_baseline_predictions(df, classifier_type='xgboost',
     df['MPC_pred'] = (df['MPC'] < MPC_significance)
 
     # Prepare data and test/train split
-    
-    df_train, df_test = train_test_split(df, test_size=0.25)
+    df_train, df_test = train_test_split(df, test_size=0.001)
 
     X_train = df_train.drop(columns=['MPC', 'MPC_pred', 'Placebo/Drug'])    
     X_test = df_test.drop(columns=['MPC', 'MPC_pred', 'Placebo/Drug'])
@@ -416,7 +420,8 @@ def generate_baseline_predictions(df, classifier_type='xgboost',
     return power, type_1_error, mpc_power, mpc_type_1_error
 
 
-def generate_power_from_classifier(df, classifier=None, MPC_significance=0.05):
+def generate_power_from_classifier(df, classifier=None, MPC_significance=0.05,
+                                   threshold=0.5):
     """Function to generate estimates of power and type 1 error from a given 
     dataset for a given classifier on model, WITHOUT training first. Also 
     generates these estimates for MPC method on the same data.
@@ -435,6 +440,9 @@ def generate_power_from_classifier(df, classifier=None, MPC_significance=0.05):
     MPC_significance : float
         Significance level for MPC value below which the null hypothesis is 
         rejected and a trial is determined to have drug effect present. 
+
+    threshold : float 
+        Threshold for prediction between 0 and 1.
 
     Returns
     -------
@@ -463,7 +471,12 @@ def generate_power_from_classifier(df, classifier=None, MPC_significance=0.05):
     X = df.drop(columns=['MPC', 'Placebo/Drug'])    
     y = df['Placebo/Drug']
  
-    y_pred = classifier.predict(X)
+    y_probs = classifier.predict_proba(X)
+    y_pred = [1 if p[1] >= threshold else 0 for p in y_probs]
+
+    # plot_roc_curve(classifier, X, y)
+    # plt.plot([0, 1])
+    # plt.show()
 
     power = recall_score(y, y_pred)
     tn, fp, _, _ = confusion_matrix(y, y_pred).ravel()
@@ -644,7 +657,7 @@ def plot_n_patient_power_curve(patient_numbers=None, N=500,
 
 
 def plot_n_patient_power_curve_no_train(classifier, patient_numbers=None, 
-                                        N=1500, save_fig=True):
+                                        N=1500, save_fig=True, threshold=0.5):
     """A function to plot power and type 1 error curves for a given dataset for
     benchmark classifiers as a function of trial size, given a classifier.
     
@@ -656,6 +669,10 @@ def plot_n_patient_power_curve_no_train(classifier, patient_numbers=None,
     patient_numbers : array-like
         List or array containing range of patient numbers 
     
+    threshold : float 
+        Threshold for prediction between 0 and 1. Lower values increase power 
+        but also increase type 1 error.
+
     N : int
         Number of clinical trials in each dataset.
 
@@ -668,7 +685,10 @@ def plot_n_patient_power_curve_no_train(classifier, patient_numbers=None,
     power_list, type_1_error_list = [], []
     mpc_power_list, mpc_type_1_error_list = [], []
 
+
     for n_patients in tqdm(patient_numbers):
+        # Sample placebo effect from uniform distribution
+        p_eff_mean = np.random.uniform(0, 0.4)
         df_dataset = generate_ml_dataset(N=N, n_placebo=n_patients, 
                                          n_drug=n_patients,
                                          n_base_months=2, 
@@ -676,7 +696,7 @@ def plot_n_patient_power_curve_no_train(classifier, patient_numbers=None,
                                          baseline_time_scale='weekly', 
                                          maintenance_time_scale='weekly',
                                          min_seizure=4,
-                                         placebo_percent_effect_mean=0.21, 
+                                         placebo_percent_effect_mean=p_eff_mean, 
                                          placebo_percent_effect_std_dev=0.1, 
                                          drug_percent_effect_mean=0.2, 
                                          drug_percent_effect_std_dev=0.05,
@@ -685,7 +705,9 @@ def plot_n_patient_power_curve_no_train(classifier, patient_numbers=None,
     
         # Generate predictions using classifier
         power, type_1_error, mpc_power, mpc_type_1_error = \
-            generate_power_from_classifier(df=df_dataset, classifier=classifier)
+            generate_power_from_classifier(df=df_dataset, 
+                                           classifier=classifier,
+                                           threshold=threshold)
         power_list.append(power)
         type_1_error_list.append(type_1_error)
         mpc_power_list.append(mpc_power)
@@ -703,9 +725,9 @@ def plot_n_patient_power_curve_no_train(classifier, patient_numbers=None,
     plt.legend()
 
     if save_fig:
-        file_name = 'power_patient_curve_one_model_N={}_d_eff=0.2_p_eff=0.21.png'.format(N)
+        file_name = 'power_patient_curve_one_model_N={}_d_eff=0.2.png'.format(N)
         plt.savefig(file_name)
-        file_name_pdf = 'power_patient_curve_one_model_N={}_d_eff=0.2_p_eff=0.21_pdf.pdf'.format(N)
+        file_name_pdf = 'power_patient_curve_one_model_N={}_d_eff=0.2_pdf.pdf'.format(N)
         plt.savefig(file_name_pdf)
         
     plt.show()
@@ -753,17 +775,20 @@ if __name__ == "__main__":
 
     # Generate plot of power and type 1 error 
     # plot_drug_effect_power_curve(drug_effects=np.linspace(0, 0.25, 26), N=5000)
-    plot_n_patient_power_curve(patient_numbers=np.arange(10, 350, 10), N=6000,
-                                variable_drug_placebo_strength=True,
-                                save_fig=True)
-    # generate_ml_dataset_large(N=1000, save_data=True, raw_counts=False)
+    # plot_n_patient_power_curve(patient_numbers=np.arange(10, 350, 10), N=6000,
+    #                             variable_drug_placebo_strength=True,
+    #                             save_fig=True)
+    # generate_ml_dataset_large(N=102000, save_data=True, raw_counts=False)
     # print(generate_baseline_predictions('df_features_100000.h5', 
-    #                                     classifier_type='xgboost', save_model=False))
+                                        # classifier_type='xgboost', save_model=True))
     
     # # Loading model and using it to get power and type 1 error
-    # classif = pickle.load(open("xgboost_model_df_features_100000.h5.model", "rb"))
-    # print(generate_power_from_classifier('df_features_100000.h5', classifier=classif))
-    # plot_n_patient_power_curve_no_train(classifier=classif, 
-    #                                     patient_numbers=np.arange(10, 350, 2),
-    #                                     N=1500,
-    #                                     save_fig=True)
+    classif = pickle.load(open("xgboost_model_df_features_102000.h5.model", "rb"))
+    # print(generate_power_from_classifier('df_features_100000.h5', 
+    #                                      classifier=classif,
+    #                                      threshold=0.3))
+    plot_n_patient_power_curve_no_train(classifier=classif, 
+                                        patient_numbers=np.arange(10, 350, 5),
+                                        N=1500,
+                                        save_fig=True,
+                                        threshold=0.3)
