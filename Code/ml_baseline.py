@@ -791,4 +791,4 @@ if __name__ == "__main__":
                                         patient_numbers=np.arange(10, 350, 5),
                                         N=1500,
                                         save_fig=True,
-                                        threshold=0.3)
+                                        threshold=0.5)
